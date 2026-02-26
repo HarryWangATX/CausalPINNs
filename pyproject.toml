@@ -1,0 +1,15 @@
+[project]
+name = "causal-pinns"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "jax==0.5.0",
+    "jaxlib==0.5.0",
+    "jax-metal==0.1.1",
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "tqdm",
+    "torch",
+    "scikit-learn",
+]

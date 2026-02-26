@@ -3,10 +3,9 @@
 import numpy as onp
 import jax.numpy as np
 from jax import random, grad, vmap, jit, jacfwd, jacrev
-from jax.experimental import optimizers
+from jax.example_libraries import optimizers
 from jax.experimental.ode import odeint
 from jax.nn import relu
-from jax.config import config
 from jax import lax
 from jax.flatten_util import ravel_pytree
 import itertools
@@ -312,11 +311,11 @@ for k in range(int(T / t1)):
     flat_params, _  = ravel_pytree(params)
     params_list.append(flat_params)
     
-    np.save('x_pred_list.npy', x_pred_list)
-    np.save('y_pred_list.npy', y_pred_list)
-    np.save('z_pred_list.npy', z_pred_list)
-    np.save('params_list.npy', params_list)
-    np.save('losses_list.npy', losses_list)
+    onp.save('x_pred_list.npy', onp.array(x_pred_list))
+    onp.save('y_pred_list.npy', onp.array(y_pred_list))
+    onp.save('z_pred_list.npy', onp.array(z_pred_list))
+    onp.save('params_list.npy', onp.array(params_list))
+    onp.save('losses_list.npy', onp.array(losses_list, dtype=object), allow_pickle=True)
     
     # Error
     t_star = onp.arange(t0, (k+1) * t1, 0.01)
