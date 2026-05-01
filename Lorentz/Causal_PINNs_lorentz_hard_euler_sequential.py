@@ -1,10 +1,10 @@
 """
-Causal PINNs (hard RK2) for the Lorenz system — sequential training.
+Causal PINNs (hard Euler) for the Lorenz system — sequential training.
 
 Window k+1's IC comes from window k's prediction at t=T1. Single process, no
 multiprocessing.
 
-Ansatz: RK2 base (10 substeps) + dt^3 * NN(dt). NN input is raw dt (no tau).
+Ansatz: Euler base (10 substeps) + dt^2 * NN(dt). NN input is raw dt (no tau).
 Activation: silu. rhs_fn(x,y,z) returns three scalars for Lorenz with rho=28.
 """
 
@@ -16,7 +16,7 @@ import numpy as onp
 from scipy.integrate import odeint as scipy_odeint
 
 # ---------------------------------------------------------------------------
-# Lorenz system (scipy reference — rho matches PINN)
+# Lorenz system (scipy reference)
 # ---------------------------------------------------------------------------
 RHO = 28.0
 SIGMA = 10.0
@@ -44,7 +44,7 @@ NUM_WINDOWS = int(T / T1)
 TOL_LIST = [1e-3, 1e-2, 1e-1, 1e0, 1e1]
 LAYERS = [1, 512, 512, 512, N_DIM]
 N_ITER = 300_000
-RK2_SUBSTEPS = 10
+EULER_SUBSTEPS = 1
 CORRECTION_POWER = 1
 
 
@@ -55,7 +55,7 @@ def main():
     import jax.numpy as np
     from jax import random, vmap, jit, lax, grad
     from jax.example_libraries import optimizers
-    from jax.nn import silu, tanh, leaky_relu
+    from jax.nn import silu, tanh
     from jax.flatten_util import ravel_pytree
     import itertools
     from functools import partial
@@ -120,28 +120,23 @@ def main():
             self.loss_res_log = []
 
         def neural_net(self, params, t):
+            t_in = np.stack([t])
             dt = t
-            t_in = np.stack([dt])
 
             x0, y0, z0 = self.states0
-            n_sub = RK2_SUBSTEPS
+            n_sub = EULER_SUBSTEPS
             h = dt / n_sub
             x, y, z = x0, y0, z0
             for _ in range(n_sub):
-                k1x, k1y, k1z = self.rhs_fn(x, y, z)
-                k2x, k2y, k2z = self.rhs_fn(
-                    x + 0.5 * h * k1x,
-                    y + 0.5 * h * k1y,
-                    z + 0.5 * h * k1z,
-                )
-                x = x + h * k2x
-                y = y + h * k2y
-                z = z + h * k2z
+                fx, fy, fz = self.rhs_fn(x, y, z)
+                x = x + h * fx
+                y = y + h * fy
+                z = z + h * fz
 
             outputs = self.apply(params, t_in)
-            x = x + dt**CORRECTION_POWER * outputs[0]
-            y = y + dt**CORRECTION_POWER * outputs[1]
-            z = z + dt**CORRECTION_POWER * outputs[2]
+            x = x + dt ** CORRECTION_POWER * outputs[0]
+            y = y + dt ** CORRECTION_POWER * outputs[1]
+            z = z + dt ** CORRECTION_POWER * outputs[2]
             return x, y, z
 
         def x_fn(self, params, t):
@@ -286,7 +281,7 @@ def main():
 
         out_dir = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
-            '..', 'hard_rk2_causalpinn_lorentz_sequential',
+            '..', 'hard_euler_causalpinn_lorentz_sequential',
         )
         os.makedirs(out_dir, exist_ok=True)
         onp.save(os.path.join(out_dir, 'x_pred_list.npy'), onp.array(x_pred_list))

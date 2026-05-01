@@ -1,11 +1,12 @@
 """
-Causal PINNs (hard RK2) for the Lorenz system — sequential training.
+Causal PINNs (baseline) for the Lorenz system — sequential training.
 
 Window k+1's IC comes from window k's prediction at t=T1. Single process, no
 multiprocessing.
 
-Ansatz: RK2 base (10 substeps) + dt^3 * NN(dt). NN input is raw dt (no tau).
-Activation: silu. rhs_fn(x,y,z) returns three scalars for Lorenz with rho=28.
+Ansatz: (x,y,z) from NN with outputs = apply*t then x=outputs[0]+IC_x, etc.
+Activation: tanh. Residual uses rho=28, sigma=10, beta=8/3 with per-component
+grad time derivatives.
 """
 
 import os
@@ -37,15 +38,13 @@ def lorenz_rhs(state, t):
 # ---------------------------------------------------------------------------
 # Training configuration
 # ---------------------------------------------------------------------------
-T = 12.0
+T = 30.0
 T1 = 0.5
 DT = 0.01
 NUM_WINDOWS = int(T / T1)
 TOL_LIST = [1e-3, 1e-2, 1e-1, 1e0, 1e1]
 LAYERS = [1, 512, 512, 512, N_DIM]
 N_ITER = 300_000
-RK2_SUBSTEPS = 10
-CORRECTION_POWER = 1
 
 
 def main():
@@ -55,18 +54,10 @@ def main():
     import jax.numpy as np
     from jax import random, vmap, jit, lax, grad
     from jax.example_libraries import optimizers
-    from jax.nn import silu, tanh, leaky_relu
     from jax.flatten_util import ravel_pytree
     import itertools
     from functools import partial
     from tqdm import trange
-
-    def lorenz_rhs_pinn(x, y, z):
-        return (
-            SIGMA * (y - x),
-            x * (RHO - z) - y,
-            x * y - BETA * z,
-        )
 
     def init_layer(key, d_in, d_out):
         k1, _ = random.split(key)
@@ -75,7 +66,7 @@ def main():
         b = np.zeros(d_out)
         return W, b
 
-    def MLP(layers, activation=tanh):
+    def MLP(layers, activation=np.tanh):
         def init(rng_key):
             _, *keys = random.split(rng_key, len(layers))
             params = list(map(init_layer, keys, layers[:-1], layers[1:]))
@@ -92,8 +83,7 @@ def main():
         return init, apply
 
     class PINN:
-        def __init__(self, layers, rhs_fn, states0, t0, t1, tol):
-            self.rhs_fn = rhs_fn
+        def __init__(self, layers, states0, t0, t1, tol):
             self.states0 = states0
             self.t0 = t0
             self.t1 = t1
@@ -105,7 +95,11 @@ def main():
             self.M = np.triu(np.ones((n_t, n_t)), k=1).T
             self.tol = tol
 
-            self.init, self.apply = MLP(layers)
+            self.rho = 28.0
+            self.sigma = 10.0
+            self.beta = 8.0 / 3.0
+
+            self.init, self.apply = MLP(layers, activation=np.tanh)
             params = self.init(random.PRNGKey(1234))
 
             self.opt_init, self.opt_update, self.get_params = optimizers.adam(
@@ -120,28 +114,11 @@ def main():
             self.loss_res_log = []
 
         def neural_net(self, params, t):
-            dt = t
-            t_in = np.stack([dt])
-
-            x0, y0, z0 = self.states0
-            n_sub = RK2_SUBSTEPS
-            h = dt / n_sub
-            x, y, z = x0, y0, z0
-            for _ in range(n_sub):
-                k1x, k1y, k1z = self.rhs_fn(x, y, z)
-                k2x, k2y, k2z = self.rhs_fn(
-                    x + 0.5 * h * k1x,
-                    y + 0.5 * h * k1y,
-                    z + 0.5 * h * k1z,
-                )
-                x = x + h * k2x
-                y = y + h * k2y
-                z = z + h * k2z
-
-            outputs = self.apply(params, t_in)
-            x = x + dt**CORRECTION_POWER * outputs[0]
-            y = y + dt**CORRECTION_POWER * outputs[1]
-            z = z + dt**CORRECTION_POWER * outputs[2]
+            t_in = np.stack([t])
+            outputs = self.apply(params, t_in) * t
+            x = outputs[0] + self.states0[0]
+            y = outputs[1] + self.states0[1]
+            z = outputs[2] + self.states0[2]
             return x, y, z
 
         def x_fn(self, params, t):
@@ -162,8 +139,10 @@ def main():
             y_t = grad(self.y_fn, argnums=1)(params, t)
             z_t = grad(self.z_fn, argnums=1)(params, t)
 
-            f1, f2, f3 = self.rhs_fn(x, y, z)
-            return x_t - f1, y_t - f2, z_t - f3
+            res_1 = x_t - self.sigma * (y - x)
+            res_2 = y_t - x * (self.rho - z) + y
+            res_3 = z_t - x * y + self.beta * z
+            return res_1, res_2, res_3
 
         def loss_ics(self, params):
             x_pred, y_pred, z_pred = self.neural_net(params, self.t0)
@@ -216,11 +195,6 @@ def main():
                     self.loss_ics_log.append(loss_ics_value)
                     self.loss_res_log.append(loss_res_value)
 
-                    loss_scalar = float(loss_value)
-                    if not onp.isfinite(loss_scalar):
-                        print(f"  [Window {window_idx}] Non-finite loss; stopping tol stage.")
-                        break
-
                     pbar.set_postfix({
                         'Loss': loss_value,
                         'loss_ics': loss_ics_value,
@@ -261,7 +235,7 @@ def main():
     for k in range(NUM_WINDOWS):
         print(f"\nFinal Time: {(k + 1) * t1:.1f}")
 
-        model = PINN(LAYERS, lorenz_rhs_pinn, state0, t0, t1, tol=0.1)
+        model = PINN(LAYERS, state0, t0, t1, tol=0.1)
 
         for tol_val in TOL_LIST:
             model.tol = tol_val
@@ -286,7 +260,7 @@ def main():
 
         out_dir = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
-            '..', 'hard_rk2_causalpinn_lorentz_sequential',
+            '..', 'baseline_causalpinn_lorentz_sequential',
         )
         os.makedirs(out_dir, exist_ok=True)
         onp.save(os.path.join(out_dir, 'x_pred_list.npy'), onp.array(x_pred_list))
