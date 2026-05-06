@@ -5,7 +5,7 @@ Window k+1's IC comes from window k's prediction at t=T1. Single process, no
 multiprocessing.
 
 Ansatz: Euler base (10 substeps) + dt^2 * NN(dt). NN input is raw dt (no tau).
-Activation: silu.
+Activation: tanh.
 """
 
 import os
@@ -49,7 +49,7 @@ def main():
     import jax.numpy as np
     from jax import random, jacfwd, vmap, jit, lax, grad
     from jax.example_libraries import optimizers
-    from jax.nn import silu
+    from jax.nn import tanh
     from jax.flatten_util import ravel_pytree
     import itertools
     from functools import partial
@@ -65,7 +65,7 @@ def main():
         b = np.zeros(d_out)
         return W, b
 
-    def MLP(layers, activation=silu):
+    def MLP(layers, activation=tanh):
         def init(rng_key):
             _, *keys = random.split(rng_key, len(layers))
             params = list(map(init_layer, keys, layers[:-1], layers[1:]))
@@ -94,7 +94,7 @@ def main():
             self.M = np.triu(np.ones((n_t, n_t)), k=1).T
             self.tol = tol
 
-            self.init, self.apply = MLP(layers, activation=silu)
+            self.init, self.apply = MLP(layers, activation=tanh)
             params = self.init(random.PRNGKey(1234))
 
             self.opt_init, self.opt_update, self.get_params = optimizers.adam(

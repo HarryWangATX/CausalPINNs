@@ -58,7 +58,7 @@ def main():
             "COLLOCATION_EXT_RATIO": 0.0,
             "RK2_SUBSTEPS": 1,
             "CORRECTION_POWER": 3,
-            "ACTIVATION": "leaky_relu",
+            "ACTIVATION": "tanh",
             "INPUT_MODE": "tau",
             "USE_RATE_SCALE": True,
             "C2_ALPHA": 0.001,

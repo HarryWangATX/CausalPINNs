@@ -5,7 +5,7 @@ Window k+1's IC comes from window k's prediction at t=T1. Single process, no
 multiprocessing.
 
 Ansatz: Euler base (10 substeps) + dt^2 * NN(dt). NN input is raw dt (no tau).
-Activation: silu. rhs_fn(x,y,z) returns three scalars for Lorenz with rho=28.
+Activation: tanh. rhs_fn(x,y,z) returns three scalars for Lorenz with rho=28.
 """
 
 import os

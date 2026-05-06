@@ -5,7 +5,7 @@ Window k+1's IC comes from window k's prediction at t=T1, matching the
 original CausalPINNs paper protocol. Single-GPU, no multiprocessing.
 
 Ansatz: RK2 base with 10 substeps, then state = state + dt^3 * NN(t),
-activation = SiLU. Uses raw t in the network input (not tau).
+activation = tanh. Uses raw t in the network input (not tau).
 """
 
 import os
@@ -51,7 +51,7 @@ def main():
     import jax.numpy as np
     from jax import random, jacfwd, vmap, jit, lax, grad
     from jax.example_libraries import optimizers
-    from jax.nn import silu, tanh, leaky_relu
+    from jax.nn import tanh
     from jax.flatten_util import ravel_pytree
     import itertools
     from functools import partial
